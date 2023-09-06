@@ -4,6 +4,7 @@ import (
 	"log"
 	"testing"
 
+	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/application"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/domain"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/infrastructure/database/postgresql"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/usecases"
@@ -23,11 +24,37 @@ func newTestMoneyTransferUsecases() *usecases.MoneyTransfer {
 }
 func TestMoneyTransfer_CreateCustomerAccount(t *testing.T) {
 	amount := decimal.NewFromInt(100)
+	currency := domain.Kenyan
+	accountInput := application.AccountCreationInput{
+		CustomerName: "John Doe",
+		Amount:       &amount,
+		Currency:     &currency,
+		Header:       domain.Deposit,
+	}
+
+	accountInputWithoutAmount := application.AccountCreationInput{
+		CustomerName: "John Doe",
+		Currency:     &currency,
+		Header:       domain.Deposit,
+	}
+
+	negativeAmount := decimal.NewFromInt(-100)
+	accountInputWithoutNegativeAmount := application.AccountCreationInput{
+		CustomerName: "John Doe",
+		Currency:     &currency,
+		Header:       domain.Deposit,
+		Amount:       &negativeAmount,
+	}
+
+	zeroAmount := decimal.Zero
+	accountInputWithoutZeroAmount := application.AccountCreationInput{
+		CustomerName: "John Doe",
+		Currency:     &currency,
+		Header:       domain.Deposit,
+		Amount:       &zeroAmount,
+	}
 	type args struct {
-		customerName string
-		startBalance *decimal.Decimal
-		currency     *domain.CurrencyType
-		header       domain.HeaderType
+		accountInput application.AccountCreationInput
 	}
 	tests := []struct {
 		name    string
@@ -38,16 +65,41 @@ func TestMoneyTransfer_CreateCustomerAccount(t *testing.T) {
 		{
 			name: "happy case",
 			args: args{
-				customerName: "John Doe",
-				startBalance: &amount,
+				accountInput: accountInput,
 			},
 			wantErr: false,
+		},
+		{
+			name: "sad case - no deposit",
+			args: args{
+				accountInput: accountInputWithoutAmount,
+			},
+			wantErr: true,
+		},
+		{
+			name:    "sad case - no account information",
+			args:    args{},
+			wantErr: true,
+		},
+		{
+			name: "sad case - negative deposit",
+			args: args{
+				accountInput: accountInputWithoutNegativeAmount,
+			},
+			wantErr: true,
+		},
+		{
+			name: "sad case - deposit of 0",
+			args: args{
+				accountInput: accountInputWithoutZeroAmount,
+			},
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mt := newTestMoneyTransferUsecases()
-			account, err := mt.CreateCustomerAccount(tt.args.customerName, tt.args.startBalance, tt.args.currency, tt.args.header)
+			account, err := mt.CreateCustomerAccount(tt.args.accountInput)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MoneyTransfer.CreateCustomerAccount() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -66,12 +118,12 @@ func TestMoneyTransfer_CreateCustomerAccount(t *testing.T) {
 					return
 				}
 
-				balance, err := mt.Get.AccountBalance(account)
+				account, err := mt.Get.Account(account.UUID)
 				if err != nil {
 					t.Errorf(err.Error())
 					return
 				}
-				if !balance.Equal(amount) {
+				if !account.Balance.Equal(amount) {
 					t.Errorf("expected the account to have a starting balance of 100")
 					return
 				}
@@ -87,23 +139,51 @@ func TestMoneyTransfer_CreateCustomerAccount(t *testing.T) {
 func TestMoneyTransfer_Transfer(t *testing.T) {
 	mt := newTestMoneyTransferUsecases()
 
-	customerName := "John Doe"
-	startBalance := decimal.NewFromInt(100)
+	amount := decimal.NewFromInt(100)
+	currency := domain.Kenyan
+	accountInput := application.AccountCreationInput{
+		CustomerName: "John Doe",
+		Amount:       &amount,
+		Currency:     &currency,
+		Header:       domain.Deposit,
+	}
 
-	srcAccount, err := mt.CreateCustomerAccount(customerName, &startBalance, nil, domain.Deposit)
+	srcAccount, err := mt.CreateCustomerAccount(accountInput)
 	if err != nil {
 		t.Errorf("unable to create test src account: %v", err)
 	}
 
-	destAccount, err := mt.CreateCustomerAccount(customerName, &startBalance, nil, domain.Deposit)
+	destAccount, err := mt.CreateCustomerAccount(accountInput)
 	if err != nil {
 		t.Errorf("unable to create test dest account: %v", err)
 	}
 
+	transferAmount := decimal.NewFromInt(80)
+	transferInput := application.TransferInput{
+		SourceAccount:      srcAccount,
+		DestinationAccount: destAccount,
+		Amount:             &transferAmount,
+	}
+
+	noSrcTransferInput := application.TransferInput{
+		DestinationAccount: destAccount,
+		Amount:             &transferAmount,
+	}
+
+	noDestTransferInput := application.TransferInput{
+		SourceAccount: srcAccount,
+		Amount:        &transferAmount,
+	}
+
+	largeAmount := decimal.NewFromInt(800)
+	invalidAmountInput := application.TransferInput{
+		SourceAccount:      srcAccount,
+		DestinationAccount: destAccount,
+		Amount:             &largeAmount,
+	}
+
 	type args struct {
-		sourceAccountID      string
-		destinationAccountID string
-		amount               decimal.Decimal
+		transferInput application.TransferInput
 	}
 	tests := []struct {
 		name    string
@@ -113,43 +193,35 @@ func TestMoneyTransfer_Transfer(t *testing.T) {
 		{
 			name: "happy case",
 			args: args{
-				sourceAccountID:      srcAccount.UUID,
-				destinationAccountID: destAccount.UUID,
-				amount:               decimal.NewFromInt(80),
+				transferInput: transferInput,
 			},
 			wantErr: false,
 		},
 		{
-			name: "sad case - non-existent account(src)",
+			name: "sad case - non-existent account(dest)",
 			args: args{
-				sourceAccountID:      uuid.NewString(),
-				destinationAccountID: destAccount.UUID,
-				amount:               decimal.NewFromInt(80),
+				transferInput: noDestTransferInput,
 			},
 			wantErr: true,
 		},
 		{
-			name: "sad case - non-existent account(dest)",
+			name: "sad case - non-existent account(src)",
 			args: args{
-				sourceAccountID:      srcAccount.UUID,
-				destinationAccountID: uuid.NewString(),
-				amount:               decimal.NewFromInt(80),
+				transferInput: noSrcTransferInput,
 			},
 			wantErr: true,
 		},
 		{
 			name: "sad case - transfer more than current balance",
 			args: args{
-				sourceAccountID:      srcAccount.UUID,
-				destinationAccountID: destAccount.UUID,
-				amount:               decimal.NewFromInt(800),
+				transferInput: invalidAmountInput,
 			},
 			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			transaction, err := mt.Transfer(tt.args.sourceAccountID, tt.args.destinationAccountID, tt.args.amount)
+			transaction, err := mt.Transfer(tt.args.transferInput)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MoneyTransfer.Transfer() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -169,12 +241,19 @@ func TestMoneyTransfer_Transfer(t *testing.T) {
 func TestMoneyTransfer_Account(t *testing.T) {
 	mt := newTestMoneyTransferUsecases()
 
-	customerName := "John Doe"
-	startBalance := decimal.NewFromInt(100)
+	amount := decimal.NewFromInt(100)
+	currency := domain.Kenyan
+	accountInput := application.AccountCreationInput{
+		CustomerName: "John Doe",
+		Amount:       &amount,
+		Currency:     &currency,
+		Header:       domain.Deposit,
+	}
 
-	srcAccount, err := mt.CreateCustomerAccount(customerName, &startBalance, nil, domain.Deposit)
+	srcAccount, err := mt.CreateCustomerAccount(accountInput)
 	if err != nil {
 		t.Errorf("unable to create test src account: %v", err)
+		return
 	}
 
 	type args struct {
