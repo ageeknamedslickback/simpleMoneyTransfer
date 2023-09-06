@@ -4,14 +4,19 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/application"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/domain"
+	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/domain/data"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
+
+var DUPLICATE_KEY_MSG = "duplicate key value violates unique constraint"
 
 // PostgreSQL sets up the PostgreSQL database layer with all the necessary dependencies
 type PostgreSQL struct {
@@ -69,41 +74,31 @@ func Migrate(db *gorm.DB) error {
 	return nil
 }
 
+// CreateSystemAccount created default system accounts
+func (p PostgreSQL) CreateSystemAccount() error {
+	for _, account := range data.SystemAccounts() {
+		results := p.ORM.Create(&account)
+		if strings.Contains(results.Error.Error(), DUPLICATE_KEY_MSG) {
+			continue
+		} else {
+			return results.Error
+		}
+
+	}
+	return nil
+}
+
 // CreateAccount does a database call to create a account
-func (p PostgreSQL) CreateAccount(
-	account *domain.Account,
-	depositAmount *decimal.Decimal,
-) (*domain.Account, error) {
+func (p PostgreSQL) CreateAccount(account *domain.Account) (*application.AccountInformationOutput, error) {
 	if account == nil {
 		return nil, fmt.Errorf("missing account creation information")
-	}
-
-	if depositAmount == nil {
-		return nil, fmt.Errorf("a deposit amount should be provided for a new account")
 	}
 
 	if err := p.ORM.Create(&account).Error; err != nil {
 		return nil, fmt.Errorf("unable to create account: %v", err)
 	}
 
-	effectiveDate := time.Now()
-	drEntry := domain.AccountEntry{
-		DebitAmount:   *depositAmount,
-		EffectiveDate: &effectiveDate,
-		AccountID:     "4a1c2699-3716-489e-903b-af0ebc4952bf", // get a system account to do the transaction
-	}
-	crEntry := domain.AccountEntry{
-		CreditAmount:  *depositAmount,
-		EffectiveDate: &effectiveDate,
-		AccountID:     account.UUID,
-	}
-
-	description := "Account activation deposit"
-	if _, err := p.CreateTransaction(description, &drEntry, &crEntry); err != nil {
-		return nil, fmt.Errorf("unable to make a transaction: %v", err)
-	}
-
-	return account, nil
+	return p.Account(account.UUID)
 }
 
 // CreateTransaction does a database call to create a transaction with account entries
@@ -156,7 +151,7 @@ func (p PostgreSQL) CreateTransaction(
 }
 
 // Account retrieves an account given it's ID(UUID)
-func (p PostgreSQL) Account(accountID string) (*domain.Account, error) {
+func (p PostgreSQL) Account(accountID string) (*application.AccountInformationOutput, error) {
 	var account domain.Account
 
 	filter := domain.Account{
@@ -168,7 +163,29 @@ func (p PostgreSQL) Account(accountID string) (*domain.Account, error) {
 		return nil, fmt.Errorf("unable to get account %s: %v", accountID, err)
 	}
 
-	return &account, nil
+	balance, err := p.AccountBalance(&account)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get account's balance: %v", err)
+	}
+
+	effectiveDate := time.Now()
+	accountOutput := application.AccountInformationOutput{
+		UUID:            account.UUID,
+		Active:          account.Active,
+		CreatedAt:       account.CreatedAt,
+		UpdatedAt:       account.UpdatedAt,
+		Name:            account.Name,
+		Description:     account.Description,
+		Currency:        account.Currency,
+		BalanceType:     account.BalanceType,
+		Header:          account.Header,
+		IsSystemAccount: account.IsSystemAccount,
+		Number:          account.Number,
+		Balance:         balance,
+		BalanceAsOf:     &effectiveDate,
+	}
+
+	return &accountOutput, nil
 }
 
 // AccountDebitTotal aggregates all the debits done to an account
@@ -179,7 +196,7 @@ func (p PostgreSQL) AccountDebitTotal(account *domain.Account) (*decimal.Decimal
 	}
 
 	var total decimal.Decimal
-	if err := p.ORM.Raw("SELECT SUM(debit_amount::float) FROM account_entries WHERE account_id = ?", accountID).Scan(&total).Error; err != nil {
+	if err := p.ORM.Raw("SELECT COALESCE(SUM(debit_amount::float), 0) AS totalDebit FROM account_entries WHERE account_id = ?", accountID).Scan(&total).Error; err != nil {
 		return nil, fmt.Errorf("unable to get the account's total debits: %v", err)
 	}
 
@@ -194,7 +211,7 @@ func (p PostgreSQL) AccountCreditTotal(account *domain.Account) (*decimal.Decima
 	}
 
 	var total decimal.Decimal
-	if err := p.ORM.Raw("SELECT SUM(credit_amount::float) FROM account_entries WHERE account_id = ?", accountID).Scan(&total).Error; err != nil {
+	if err := p.ORM.Raw("SELECT COALESCE(SUM(credit_amount::float), 0) AS totalCredit FROM account_entries WHERE account_id = ?", accountID).Scan(&total).Error; err != nil {
 		return nil, fmt.Errorf("unable to get the account's total credits: %v", err)
 	}
 
@@ -218,7 +235,7 @@ func (p PostgreSQL) AccountBalance(account *domain.Account) (*decimal.Decimal, e
 	}
 
 	var balance decimal.Decimal
-	if account.BalanceType == domain.Debit {
+	if account.BalanceType == domain.Credit {
 		balance = debits.Sub(*credits)
 	} else {
 		balance = credits.Sub(*debits)

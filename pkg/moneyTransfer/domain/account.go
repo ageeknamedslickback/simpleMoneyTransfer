@@ -20,7 +20,9 @@ type AbstractBase struct {
 
 // BeforeCreate ensures a UUID and createdAt data is inserted
 func (ab *AbstractBase) BeforeCreate(tx *gorm.DB) (err error) {
-	ab.UUID = uuid.New().String()
+	if ab.UUID == "" {
+		ab.UUID = uuid.New().String()
+	}
 	return
 }
 
@@ -55,6 +57,9 @@ const (
 
 	// Loan is a grouping for customer loan accounts
 	Loan HeaderType = "LOAN"
+
+	// Cash ..
+	Cash HeaderType = "CASH"
 )
 
 // Account denotes a virtual storage and tracker for value (money/loyalty points)
@@ -71,8 +76,12 @@ type Account struct {
 
 // BeforeCreate ensures an account number is generated
 func (acc *Account) BeforeCreate(tx *gorm.DB) (err error) {
-	acc.UUID = uuid.New().String()
-	acc.Number = fmt.Sprintf("AC-%v", time.Now().Unix())
+	if acc.UUID == "" {
+		acc.UUID = uuid.New().String()
+	}
+	if acc.Number == "" {
+		acc.Number = fmt.Sprintf("AC-%v", time.Now().Unix())
+	}
 	return
 }
 
@@ -85,8 +94,8 @@ type Transaction struct {
 // AccountEntry hold information about the value, accounts involved in the transfer of money
 type AccountEntry struct {
 	AbstractBase  `gorm:"embedded"`
-	DebitAmount   decimal.Decimal `json:"dr_amount,omitempty"`
-	CreditAmount  decimal.Decimal `json:"cr_amount,omitempty"`
+	DebitAmount   decimal.Decimal `json:"dr_amount,omitempty" gorm:"default 0"`
+	CreditAmount  decimal.Decimal `json:"cr_amount,omitempty" gorm:"default 0"`
 	EffectiveDate *time.Time      `json:"effective_date"`
 	AccountID     string          `json:"account_id"`
 	Account       Account         `json:"account,omitempty" gorm:"foreginKey:AccountID"`
@@ -97,7 +106,7 @@ type AccountEntry struct {
 // ValidateDebitAmount validates that a debit amount is non-negative
 func (ae AccountEntry) ValidateDebitAmount() error {
 	if ae.DebitAmount.LessThanOrEqual(decimal.Zero) {
-		return fmt.Errorf("you can not debit a 0 or a negative amount")
+		return fmt.Errorf("you can not debit a 0 or negative amount")
 	}
 
 	return nil
@@ -106,7 +115,7 @@ func (ae AccountEntry) ValidateDebitAmount() error {
 // ValidateDebitAmount validates that a credit amount is non-negative
 func (ae AccountEntry) ValidateCreditAmount() error {
 	if ae.CreditAmount.LessThanOrEqual(decimal.Zero) {
-		return fmt.Errorf("you can not credit a 0 or a negative amount")
+		return fmt.Errorf("you can not credit a 0 or negative amount")
 	}
 
 	return nil
