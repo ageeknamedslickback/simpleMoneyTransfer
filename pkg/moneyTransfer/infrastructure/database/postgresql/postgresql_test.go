@@ -8,7 +8,6 @@ import (
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/infrastructure/database/postgresql"
 	"github.com/brianvoe/gofakeit"
 	"github.com/google/uuid"
-	"github.com/shopspring/decimal"
 )
 
 func newTestPostgreSQL() *postgresql.PostgreSQL {
@@ -22,13 +21,9 @@ func newTestPostgreSQL() *postgresql.PostgreSQL {
 
 func TestPostgreSQL_CreateAccount(t *testing.T) {
 	p := newTestPostgreSQL()
-	amount := decimal.NewFromInt(100)
-	negativeAmount := decimal.NewFromInt(-100)
-	zeroAmount := decimal.Zero
 
 	type args struct {
-		account       *domain.Account
-		depositAmount *decimal.Decimal
+		account *domain.Account
 	}
 	tests := []struct {
 		name    string
@@ -43,52 +38,18 @@ func TestPostgreSQL_CreateAccount(t *testing.T) {
 					Description: "Customer's deposit account",
 					BalanceType: domain.Credit,
 				},
-				depositAmount: &amount,
 			},
 			wantErr: false,
 		},
 		{
-			name: "sad case - no deposit",
-			args: args{
-				account: &domain.Account{},
-			},
-			wantErr: true,
-		},
-		{
-			name: "sad case - no account information",
-			args: args{
-				depositAmount: &amount,
-			},
-			wantErr: true,
-		},
-		{
-			name: "sad case - negative deposit",
-			args: args{
-				account: &domain.Account{
-					Name:        gofakeit.Name(),
-					Description: "Customer's deposit account",
-					BalanceType: domain.Credit,
-				},
-				depositAmount: &negativeAmount,
-			},
-			wantErr: true,
-		},
-		{
-			name: "sad case - deposit of 0",
-			args: args{
-				account: &domain.Account{
-					Name:        gofakeit.Name(),
-					Description: "Customer's deposit account",
-					BalanceType: domain.Credit,
-				},
-				depositAmount: &zeroAmount,
-			},
+			name:    "sad case - no account information",
+			args:    args{},
 			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			account, err := p.CreateAccount(tt.args.account, tt.args.depositAmount)
+			account, err := p.CreateAccount(tt.args.account)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PostgreSQL.CreateAccount() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -106,16 +67,6 @@ func TestPostgreSQL_CreateAccount(t *testing.T) {
 					t.Errorf("expected a default KSH account")
 					return
 				}
-
-				balance, err := p.AccountBalance(account)
-				if err != nil {
-					t.Errorf(err.Error())
-					return
-				}
-				if !balance.Equal(amount) {
-					t.Errorf("expected the account to have a starting balance of 100")
-					return
-				}
 			}
 			if tt.wantErr && account != nil {
 				t.Errorf("did not expect an account to be created")
@@ -128,13 +79,12 @@ func TestPostgreSQL_CreateAccount(t *testing.T) {
 func TestPostgreSQL_Account(t *testing.T) {
 	p := newTestPostgreSQL()
 
-	amount := decimal.NewFromInt(100000)
 	newAccount, err := p.CreateAccount(&domain.Account{
 		Name:        gofakeit.Name(),
 		Description: "Customer's deposit account",
 		BalanceType: domain.Credit,
 		Currency:    "UGX",
-	}, &amount)
+	})
 	if err != nil {
 		t.Errorf("unable to create test account: %v", err)
 		return
@@ -181,16 +131,6 @@ func TestPostgreSQL_Account(t *testing.T) {
 				}
 				if account.Currency != domain.Ugandan {
 					t.Errorf("expected a default KSH account")
-					return
-				}
-
-				balance, err := p.AccountBalance(account)
-				if err != nil {
-					t.Errorf(err.Error())
-					return
-				}
-				if !balance.Equal(amount) {
-					t.Errorf("expected the account to have a starting balance of 100")
 					return
 				}
 			}

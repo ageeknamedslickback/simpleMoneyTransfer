@@ -4,25 +4,17 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/application"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/domain"
+	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/domain/data"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/repository"
-	"github.com/shopspring/decimal"
 )
 
 // MoneyTransferUsecases defines a contract the money transfer usecase adheres to
 type MoneyTransferUsecases interface {
-	CreateCustomerAccount(
-		customerName string,
-		startBalance *decimal.Decimal,
-		currency *domain.CurrencyType,
-		header domain.HeaderType,
-	) (*domain.Account, error)
-	Account(accountID string) (*domain.Account, error)
-	Transfer(
-		sourceAccountID string,
-		destinationAccountID string,
-		amount decimal.Decimal,
-	) (*domain.Transaction, error)
+	CreateCustomerAccount(accountInput application.AccountCreationInput) (*application.AccountInformationOutput, error)
+	Account(accountID string) (*application.AccountInformationOutput, error)
+	Transfer(transferInput application.TransferInput) (*domain.Transaction, error)
 }
 
 // MoneyTransfer set up the money transfer business logic and its dependencies
@@ -56,19 +48,20 @@ func NewMoneyTransferUsecases(
 }
 
 // CreateCustomerAccount creates a new customer's account
-func (mt MoneyTransfer) CreateCustomerAccount(
-	customerName string,
-	startBalance *decimal.Decimal,
-	currency *domain.CurrencyType,
-	header domain.HeaderType,
-) (*domain.Account, error) {
-	accountInfo := domain.Account{
-		Name:        fmt.Sprintf("%s %s account", customerName, header),
-		Description: fmt.Sprintf("%s %s account", customerName, header),
-		Header:      header,
+func (mt MoneyTransfer) CreateCustomerAccount(accountInput application.AccountCreationInput) (*application.AccountInformationOutput, error) {
+	depositAmount := accountInput.Amount
+	if depositAmount == nil {
+		return nil, fmt.Errorf("a deposit amount should be provided for a new account")
 	}
 
-	switch header {
+	accountInfo := domain.Account{
+		Name:        fmt.Sprintf("%s %s account", accountInput.CustomerName, accountInput.Header),
+		Description: fmt.Sprintf("%s %s account", accountInput.CustomerName, accountInput.Header),
+		Header:      accountInput.Header,
+		Currency:    *accountInput.Currency,
+	}
+
+	switch accountInput.Header {
 	case domain.Deposit:
 		accountInfo.BalanceType = domain.Credit
 
@@ -76,53 +69,76 @@ func (mt MoneyTransfer) CreateCustomerAccount(
 		accountInfo.BalanceType = domain.Debit
 	}
 
-	return mt.Create.CreateAccount(&accountInfo, startBalance)
+	account, err := mt.Create.CreateAccount(&accountInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	systemAccount, err := mt.Account(data.SYSTEM_CASH_ACCOUNT)
+	if err != nil {
+		return nil, err
+	}
+
+	transferInput := application.TransferInput{
+		SourceAccount:      systemAccount,
+		DestinationAccount: account,
+		Amount:             accountInput.Amount,
+	}
+
+	if _, err = mt.Transfer(transferInput); err != nil {
+		return nil, err
+	}
+
+	return mt.Account(account.UUID)
 }
 
 // Account retrieves an account given it identifier
-func (mt MoneyTransfer) Account(accountID string) (*domain.Account, error) {
+func (mt MoneyTransfer) Account(accountID string) (*application.AccountInformationOutput, error) {
 	return mt.Get.Account(accountID)
 }
 
 // Transfer handles the movement of money from a source to a destination account
-func (mt MoneyTransfer) Transfer(
-	sourceAccountID string,
-	destinationAccountID string,
-	amount decimal.Decimal,
-) (*domain.Transaction, error) {
-	sourceAccount, err := mt.Get.Account(sourceAccountID)
-	if err != nil {
-		return nil, err
+func (mt MoneyTransfer) Transfer(transferInput application.TransferInput) (*domain.Transaction, error) {
+	sourceAccount := transferInput.SourceAccount
+	destinationAccount := transferInput.DestinationAccount
+
+	if sourceAccount == nil {
+		return nil, fmt.Errorf("source account is required")
 	}
 
-	destinationAccount, err := mt.Get.Account(destinationAccountID)
-	if err != nil {
-		return nil, err
+	if destinationAccount == nil {
+		return nil, fmt.Errorf("destination account is required")
 	}
 
-	sourceAccountBalance, err := mt.Get.AccountBalance(sourceAccount)
-	if err != nil {
-		return nil, err
-	}
+	amount := transferInput.Amount
+	sourceAccountBalance := sourceAccount.Balance
 
-	if amount.GreaterThan(*sourceAccountBalance) {
-		return nil, fmt.Errorf("%v is more than your current account's balance of %v", amount, sourceAccountBalance)
+	if !sourceAccount.IsSystemAccount && amount.GreaterThan(*sourceAccountBalance) {
+		return nil, fmt.Errorf("%v is more than %s current account's balance of %v",
+			amount,
+			sourceAccount.Name,
+			sourceAccountBalance,
+		)
 	}
 
 	var description string
 	var crEntry domain.AccountEntry
 	var drEntry domain.AccountEntry
 	switch sourceAccount.Header {
-	case domain.Deposit:
-		description = fmt.Sprintf("Deposit of %v from account %s to account %s", amount, sourceAccount.Number, destinationAccount.Number)
+	case domain.Deposit, domain.Cash:
+		description = fmt.Sprintf("Deposit of %v from account %s to account %s",
+			amount,
+			sourceAccount.Number,
+			destinationAccount.Number,
+		)
 		crEntry = domain.AccountEntry{
-			CreditAmount: amount,
-			AccountID:    sourceAccountID,
+			CreditAmount: *amount,
+			AccountID:    sourceAccount.UUID,
 		}
 
 		drEntry = domain.AccountEntry{
-			DebitAmount: amount,
-			AccountID:   destinationAccountID,
+			DebitAmount: *amount,
+			AccountID:   destinationAccount.UUID,
 		}
 	}
 
