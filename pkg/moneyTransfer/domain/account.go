@@ -28,7 +28,10 @@ func (ab *AbstractBase) BeforeCreate(tx *gorm.DB) (err error) {
 type CurrencyType string
 
 const (
-	Kenyan  CurrencyType = "KSH"
+	// Kenyan is the universal code for Kenyan currency
+	Kenyan CurrencyType = "KSH"
+
+	// Ugandan is the uniersal code for Ugandan currency
 	Ugandan CurrencyType = "UGX"
 )
 
@@ -36,8 +39,22 @@ const (
 type BalanceType string
 
 const (
-	Debit  BalanceType = "DR"
+	// Debit represents a debit balance type
+	Debit BalanceType = "DR"
+
+	// Credit represents a credit balance type
 	Credit BalanceType = "CR"
+)
+
+// HeaderType specify the title of a group of accounts
+type HeaderType string
+
+const (
+	// Deposit is a grouping for customer deposit accounts
+	Deposit HeaderType = "DEPOSIT"
+
+	// Loan is a grouping for customer loan accounts
+	Loan HeaderType = "LOAN"
 )
 
 // Account denotes a virtual storage and tracker for value (money/loyalty points)
@@ -48,7 +65,8 @@ type Account struct {
 	Number          string
 	Currency        CurrencyType `gorm:"default: KSH"`
 	BalanceType     BalanceType
-	IsSystemAccount bool `gorm:"default: false"`
+	Header          HeaderType `gorm:"default: DEPOSIT"`
+	IsSystemAccount bool       `gorm:"default: false"`
 }
 
 // BeforeCreate ensures an account number is generated
@@ -78,8 +96,8 @@ type AccountEntry struct {
 
 // ValidateDebitAmount validates that a debit amount is non-negative
 func (ae AccountEntry) ValidateDebitAmount() error {
-	if ae.DebitAmount.IsNegative() {
-		return fmt.Errorf("you can not debit a negative amount")
+	if ae.DebitAmount.LessThanOrEqual(decimal.Zero) {
+		return fmt.Errorf("you can not debit a 0 or a negative amount")
 	}
 
 	return nil
@@ -87,8 +105,8 @@ func (ae AccountEntry) ValidateDebitAmount() error {
 
 // ValidateDebitAmount validates that a credit amount is non-negative
 func (ae AccountEntry) ValidateCreditAmount() error {
-	if ae.CreditAmount.IsNegative() {
-		return fmt.Errorf("you can not credit a negative amount")
+	if ae.CreditAmount.LessThanOrEqual(decimal.Zero) {
+		return fmt.Errorf("you can not credit a 0 or a negative amount")
 	}
 
 	return nil

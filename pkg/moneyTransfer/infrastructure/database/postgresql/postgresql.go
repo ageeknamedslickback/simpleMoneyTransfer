@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// PostgreSQL sets up the PostgreSQL databas layer with all the necessary dependencies
+// PostgreSQL sets up the PostgreSQL database layer with all the necessary dependencies
 type PostgreSQL struct {
 	ORM *gorm.DB
 }
