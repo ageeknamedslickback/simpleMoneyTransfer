@@ -24,6 +24,7 @@ func TestPostgreSQL_CreateAccount(t *testing.T) {
 	p := newTestPostgreSQL()
 	amount := decimal.NewFromInt(100)
 	negativeAmount := decimal.NewFromInt(-100)
+	zeroAmount := decimal.Zero
 
 	type args struct {
 		account       *domain.Account
@@ -69,6 +70,18 @@ func TestPostgreSQL_CreateAccount(t *testing.T) {
 					BalanceType: domain.Credit,
 				},
 				depositAmount: &negativeAmount,
+			},
+			wantErr: true,
+		},
+		{
+			name: "sad case - deposit of 0",
+			args: args{
+				account: &domain.Account{
+					Name:        gofakeit.Name(),
+					Description: "Customer's deposit account",
+					BalanceType: domain.Credit,
+				},
+				depositAmount: &zeroAmount,
 			},
 			wantErr: true,
 		},
