@@ -9,11 +9,15 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/application"
+	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/domain"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/usecases"
 	"github.com/gin-gonic/gin"
 )
+
+var mutex sync.Mutex
 
 // RestHandlers defines a contract the money transfer rest presentation adheres to
 type RestHandlers interface {
@@ -50,13 +54,39 @@ func jsonErrorResponse(c *gin.Context, statusCode int, err string) {
 
 // CreateAccount is account creation handler
 func (r Rest) CreateAccount(c *gin.Context) {
+	var err error
+	var account *application.AccountInformationOutput
 	var accountCreationInput application.AccountCreationInput
-	if err := c.ShouldBindJSON(&accountCreationInput); err != nil {
+
+	if err = c.ShouldBindJSON(&accountCreationInput); err != nil {
 		jsonErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	account, err := r.Uc.CreateCustomerAccount(accountCreationInput)
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	accountChan := make(chan *application.AccountInformationOutput, 1)
+
+	go func() {
+		defer wg.Done()
+		mutex.Lock()
+		defer mutex.Unlock()
+
+		account, err = r.Uc.CreateCustomerAccount(accountCreationInput)
+		accountChan <- account
+	}()
+
+	// Wait for all Goroutines to finish
+	wg.Wait()
+
+	// Close the result channel
+	close(accountChan)
+
+	for acc := range accountChan {
+		account = acc
+	}
+
 	if err != nil {
 		jsonErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
@@ -74,7 +104,17 @@ func (r Rest) Account(c *gin.Context) {
 		return
 	}
 
-	account, err := r.Uc.Account(accountID)
+	var account *application.AccountInformationOutput
+	var err error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		account, err = r.Uc.Account(accountID)
+		wg.Done()
+	}()
+
+	wg.Wait()
+
 	if err != nil {
 		jsonErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
@@ -85,33 +125,58 @@ func (r Rest) Account(c *gin.Context) {
 
 // Transfer implements an account transaction handler
 func (r Rest) Transfer(c *gin.Context) {
+	var err error
+	var transaction *domain.Transaction
+	var sourceAccount *application.AccountInformationOutput
+	var destinationAccount *application.AccountInformationOutput
+
 	var payload application.TransferPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		jsonErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	sourceAccount, err := r.Uc.Account(payload.SourceAccountID)
+	// Create a WaitGroup to wait for all Goroutines to finish
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// Create a channel to communicate results
+	transactionChan := make(chan *domain.Transaction, 1)
+
+	go func() {
+		defer wg.Done()
+
+		mutex.Lock()
+		defer mutex.Unlock()
+		sourceAccount, err = r.Uc.Account(payload.SourceAccountID)
+		destinationAccount, err = r.Uc.Account(payload.DestinationAccountID)
+
+		transferInput := application.TransferInput{
+			SourceAccount:      sourceAccount,
+			DestinationAccount: destinationAccount,
+			Amount:             payload.Amount,
+		}
+		transaction, err = r.Uc.Transfer(transferInput)
+
+		transactionChan <- transaction
+	}()
+
+	// Wait for all Goroutines to finish
+	wg.Wait()
+
+	// Close the result channel
+	close(transactionChan)
+
 	if err != nil {
 		jsonErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	destinationAccount, err := r.Uc.Account(payload.DestinationAccountID)
-	if err != nil {
-		jsonErrorResponse(c, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	transferInput := application.TransferInput{
-		SourceAccount:      sourceAccount,
-		DestinationAccount: destinationAccount,
-		Amount:             payload.Amount,
-	}
-	transaction, err := r.Uc.Transfer(transferInput)
-	if err != nil {
-		jsonErrorResponse(c, http.StatusBadRequest, err.Error())
-		return
+	for trans := range transactionChan {
+		// We only have one transation
+		// We can get away by assign the "last" element
+		// to the transaction struct
+		transaction = trans
 	}
 
 	c.JSON(http.StatusOK, gin.H{"transaction": transaction})
