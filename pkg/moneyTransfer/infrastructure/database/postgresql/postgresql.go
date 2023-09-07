@@ -77,13 +77,14 @@ func Migrate(db *gorm.DB) error {
 // CreateSystemAccount created default system accounts
 func (p PostgreSQL) CreateSystemAccount() error {
 	for _, account := range data.SystemAccounts() {
-		results := p.ORM.Create(&account)
-		if strings.Contains(results.Error.Error(), DUPLICATE_KEY_MSG) {
-			continue
-		} else {
-			return results.Error
+		err := p.ORM.Create(&account).Error
+		if err != nil {
+			if strings.Contains(err.Error(), DUPLICATE_KEY_MSG) {
+				continue
+			} else {
+				return err
+			}
 		}
-
 	}
 	return nil
 }

@@ -14,6 +14,7 @@ type CreateRepository interface {
 		drEntry *domain.AccountEntry,
 		crEntry *domain.AccountEntry,
 	) (*domain.Transaction, error)
+	CreateSystemAccount() error
 }
 
 // GetRepository abstracts the Get contract that any repository should adhere to
