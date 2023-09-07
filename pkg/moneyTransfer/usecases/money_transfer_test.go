@@ -99,6 +99,11 @@ func TestMoneyTransfer_CreateCustomerAccount(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mt := newTestMoneyTransferUsecases()
+			// Create system accounts
+			if err := mt.Create.CreateSystemAccount(); err != nil {
+				log.Panicf("system error, unable to create default account(s): %v", err)
+			}
+
 			account, err := mt.CreateCustomerAccount(tt.args.accountInput)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MoneyTransfer.CreateCustomerAccount() error = %v, wantErr %v", err, tt.wantErr)
