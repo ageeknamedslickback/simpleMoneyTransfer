@@ -14,6 +14,8 @@ import (
 	"github.com/shopspring/decimal"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	_ "github.com/GoogleCloudPlatform/cloudsql-proxy/proxy/dialers/postgres"
 )
 
 var DUPLICATE_KEY_MSG = "duplicate key value violates unique constraint"
@@ -40,14 +42,31 @@ func NewPostgreSQLDatabase(gorm *gorm.DB) *PostgreSQL {
 // ConnectToDatabase opens a connection to a given database
 func ConnectToDatabase() (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
-		"host=%s user=%s password=%s port=%s dbname=%s sslmode=disable TimeZone=Africa/Nairobi",
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Africa/Nairobi",
 		os.Getenv("DB_HOST"),
 		os.Getenv("DB_USER"),
 		os.Getenv("DB_PASS"),
-		os.Getenv("DB_PORT"),
 		os.Getenv("DB_NAME"),
+		os.Getenv("DB_PORT"),
 	)
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+
+	if os.Getenv("DB_CONNECTION") != "cloud" {
+		db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if err != nil {
+			log.Fatalf("can't open connection to the local database: %v", err)
+		}
+		if err := Migrate(db); err != nil {
+			return nil, err
+		}
+
+		return db, nil
+	}
+
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DriverName: "cloudsqlpostgres",
+		DSN:        dsn,
+	}))
+
 	if err != nil {
 		return nil, fmt.Errorf("server is unable to connect to the database: %v", err)
 	}
