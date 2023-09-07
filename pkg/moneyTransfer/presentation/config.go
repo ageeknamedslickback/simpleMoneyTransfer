@@ -11,12 +11,21 @@ import (
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/presentation/middleware"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/presentation/rest"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/usecases"
+	"github.com/getsentry/sentry-go"
+	sentrygin "github.com/getsentry/sentry-go/gin"
 	"github.com/gin-gonic/gin"
 	adapter "github.com/gwatts/gin-adapter"
 )
 
 func Router() *gin.Engine {
+	if err := sentry.Init(sentry.ClientOptions{
+		Dsn: os.Getenv("SENTRY_DSN"),
+	}); err != nil {
+		fmt.Printf("Sentry initialization failed: %v", err)
+	}
+
 	router := gin.Default()
+	router.Use(sentrygin.New(sentrygin.Options{}))
 
 	db, err := postgresql.ConnectToDatabase()
 	if err != nil {
