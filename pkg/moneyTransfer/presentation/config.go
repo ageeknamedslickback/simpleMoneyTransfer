@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/infrastructure/database/postgresql"
+	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/presentation/middleware"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/presentation/rest"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/usecases"
 	"github.com/gin-gonic/gin"
+	adapter "github.com/gwatts/gin-adapter"
 )
 
 func Router() *gin.Engine {
@@ -18,7 +20,7 @@ func Router() *gin.Engine {
 
 	db, err := postgresql.ConnectToDatabase()
 	if err != nil {
-		log.Panicf("server unable to connect to the databse: %v", err)
+		log.Panicf("server unable to connect to the database: %v", err)
 	}
 	create := postgresql.NewPostgreSQLDatabase(db)
 	get := postgresql.NewPostgreSQLDatabase(db)
@@ -49,9 +51,13 @@ func Router() *gin.Engine {
 	}))
 
 	v1 := router.Group("api/v1")
-	v1.GET("/account/:id", h.Account)
-	v1.POST("/account", h.CreateAccount)
-	v1.POST("/transfers", h.Transfer)
+	v1.POST("/access_token", h.Authenticate)
+	v1.Use(adapter.Wrap(middleware.EnsureValidToken()))
+	{
+		v1.GET("/account/:id", h.Account)
+		v1.POST("/account", h.CreateAccount)
+		v1.POST("/transfers", h.Transfer)
+	}
 
 	return router
 }
