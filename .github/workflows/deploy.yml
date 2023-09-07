@@ -1,0 +1,65 @@
+name: deployment
+
+on:
+    push:
+      branches:
+        - "release" # Not an existing branch (Just for POC)
+
+env:
+    GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+    GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+    DOCKER_IMAGE_TAG: eu.gcr.io/${{ secrets.GOOGLE_CLOUD_PROJECT }}/accounting:${{  github.sha }}
+
+jobs:
+  deploy_to_testing:
+    name: deploy to a testing environment
+    strategy:
+        matrix:
+          go-version: [1.20.x]
+          os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - id: "auth"
+        uses: "google-github-actions/auth@v0"
+        with:
+          credentials_json: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+          project_id: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+
+      - run: |-
+          gcloud --quiet auth configure-docker
+
+      - name: Build and Push Image
+        run: |-
+          docker build -t ${{ env.DOCKER_IMAGE_TAG }} .
+          docker push ${{ env.DOCKER_IMAGE_TAG }}
+
+      - id: "deploy"
+        uses: "google-github-actions/deploy-cloudrun@v1"
+        with:
+            service: "accounting"
+            image: ${{ env.DOCKER_IMAGE_TAG }}
+            region: ${{ secrets.REGION }}
+            env_vars: |
+                DB_USER=${{ secrets.DB_USER }}
+                DB_PASS=${{ secrets.DB_PASS }}
+                DB_HOST=${{ secrets.DB_HOST }}
+                DB_PORT=${{ secrets.DB_PORT }}
+                DB_NAME=${{ secrets.DB_NAME }}
+                DB_CONNECTION=${{ secrets.DB_CONNECTION }}
+                SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+                AUTH0_GRANT_TYPE=${{ secrets.AUTH0_GRANT_TYPE }}
+                AUTH0_CLIENT_ID=${{ secrets.AUTH0_CLIENT_ID }}
+                AUTH0_CLIENT_SECRET=${{ secrets.AUTH0_CLIENT_SECRET }}
+                AUTH0_AUDIENCE=${{ secrets.AUTH0_AUDIENCE }}
+                AUTH0_DOMAIN=${{ secrets.AUTH0_DOMAIN }}
+    
+      - name: 'Use output'
+        run: 'curl "${{ steps.deploy.outputs.url }}"'
+
+        
+
+
