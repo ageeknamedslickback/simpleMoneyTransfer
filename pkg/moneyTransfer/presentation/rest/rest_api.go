@@ -1,8 +1,14 @@
 package rest
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/application"
 	"github.com/ageeknamedslickback/simpleMoneyTransfer/pkg/moneyTransfer/usecases"
@@ -11,6 +17,7 @@ import (
 
 // RestHandlers defines a contract the money transfer rest presentation adheres to
 type RestHandlers interface {
+	Authenticate(c *gin.Context)
 	CreateAccount(c *gin.Context)
 	Account(c *gin.Context)
 	Transfer(c *gin.Context)
@@ -108,4 +115,44 @@ func (r Rest) Transfer(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"transaction": transaction})
+}
+
+// Authenticate provides an authentication endpoint that returns an access token
+// to interact with the other APIs
+func (r Rest) Authenticate(c *gin.Context) {
+	params := url.Values{}
+	params.Add("grant_type", os.Getenv("AUTH0_GRANT_TYPE"))
+	params.Add("client_id", os.Getenv("AUTH0_CLIENT_ID"))
+	params.Add("client_secret", os.Getenv("AUTH0_CLIENT_SECRET"))
+	params.Add("audience", os.Getenv("AUTH0_AUDIENCE"))
+	payload := strings.NewReader(params.Encode())
+
+	URL := fmt.Sprintf("https://%s/oauth/token", os.Getenv("AUTH0_DOMAIN"))
+	req, err := http.NewRequest(http.MethodPost, URL, payload)
+	if err != nil {
+		jsonErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	req.Header.Set("content-type", "application/x-www-form-urlencoded")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		jsonErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		jsonErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var accessToken application.AccessToken
+	if err := json.Unmarshal(body, &accessToken); err != nil {
+		jsonErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"response": accessToken})
 }
