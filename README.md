@@ -24,18 +24,25 @@ To understand how everything comes together, here's a Confluence page that gives
 2. Create `env.sh` and add the following environment variables. This assumes that you have
 created a database whose information is populated under `DB_` prefix.
     ```bash
+    # PostgreSQL
     export DB_USER=""
     export DB_PASS=""
     export DB_HOST=""
     export DB_PORT=""
     export DB_NAME=""
+
+    # Server
     export PORT=""
-    export PORT=8080
+
+    # Auth0
     export AUTH0_GRANT_TYPE=""
     export AUTH0_CLIENT_ID=""
     export AUTH0_CLIENT_SECRET=""
     export AUTH0_AUDIENCE=""
     export AUTH0_DOMAIN=""
+
+    # Sentry
+    export SENTRY_DSN=
     ```
 
 3. Install Go dependencies

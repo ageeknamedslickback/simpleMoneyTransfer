@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/auth0/go-jwt-middleware/v2 v2.1.0
 	github.com/brianvoe/gofakeit v3.18.0+incompatible
+	github.com/getsentry/sentry-go v0.24.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.1
 	github.com/gwatts/gin-adapter v1.0.0
